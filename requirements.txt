@@ -2,8 +2,8 @@ torch
 numpy
 gin-config
 transformers
-datasets
-evaluate
+datasets==2.10.0
+evaluate==0.4.1
 sentencepiece
 protobuf==3.17.3
 promptsource

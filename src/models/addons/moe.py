@@ -648,7 +648,7 @@ class FFNExperts(ExtendableAddon):
         """
         Args:
             input_hidden: (..., seq_len, d_in)
-            routing_weights: (..., num_experts), one-hot or soft distribution
+            routing_weights: (..., num_experts), one-hot or soft distribution # TODO: exp(dot product)?
         Returns:
             output_hidden: (..., seq_len, d_out)
         """
@@ -661,26 +661,41 @@ class FFNExperts(ExtendableAddon):
             assert self.topk_value is not None
             bs, seq_len, _ = input_hidden.shape
             input_hidden = input_hidden.reshape(-1, self.d_in)
+                    # (bs*seq_len, d_in), for each token, the input hidden states
             routing_weights = routing_weights.reshape(-1, self.num_experts)
+                    # (bs*seq_len, num_experts), for each token, the routing weights per expert
             if routing_weights.shape[0] != input_hidden.shape[0]:
                 # handle decoder case
                 import ipdb
 
                 ipdb.set_trace()
-            topk_weights, topk_indices = torch.topk(
+            (
+                topk_weights,  # (bs*seq_len, k), for each token, the weights of top k experts
+                topk_indices  # (bs*seq_len, topk_indices), for each token, the indices of top k experts
+            ) = torch.topk(
                 routing_weights, self.topk_value, dim=-1
             )
             if self.normalize_topk:
                 topk_weights = topk_weights / (
                     torch.sum(topk_weights, dim=-1, keepdim=True) + self.epsilon
-                )
-            topk_weights = topk_weights.to(routing_weights.dtype)
-            zeros = torch.zeros_like(routing_weights)
+                )  # should be softmax?
+            topk_weights = topk_weights.to(routing_weights.dtype)  # (bs*seq_len, topk_value)
+            zeros = torch.zeros_like(routing_weights)  # (bs*seq_len, num_experts)
             gates = zeros.scatter(1, topk_indices, topk_weights)
-            sorted_experts, index_sorted_experts = torch.nonzero(gates).sort(0)
+                    # (bs*seq_len, num_experts), for each token, the weights of top k experts and zeros for the rest
+            (
+                sorted_experts,  # (bs*seq_len*topk_value, 2), each row is [token_index, expert_index]
+                index_sorted_experts  #
+            ) = (
+                torch.nonzero(gates)  # (bs*seq_len*topk_value, 2), each row is [token_index, expert_index]
+            ).sort(0)  # sort each column independently; in fact only need to sort the second column
             _, expert_index = sorted_experts.split(1, dim=1)
-            batch_index = torch.nonzero(gates)[index_sorted_experts[:, 1], 0]
-            part_sizes = (gates > 0).sum(0).tolist()
+            batch_index = torch.nonzero(gates)[
+                index_sorted_experts[:, 1],
+                0
+            ]
+            part_sizes = (gates > 0).sum(0).tolist()  # (num_experts,), how many tokens each expert has
+
             gates_exp = gates[batch_index.flatten()]
             nonzero_gates = torch.gather(gates_exp, 1, expert_index)
             inp_exp = input_hidden[batch_index].squeeze(1)
