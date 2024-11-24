@@ -1,8 +1,12 @@
 # offline datasets dir
-src/datasets_offline/
+src/datasets_offline/*
+!src/datasets_offline/.gitkeep
 
 # experiment outputs
-exp_out/
+exp_out/*
+!exp_out/slurm_logs
+exp_out/slurm_logs/*
+!exp_out/slurm_logs/.gitkeep
 wandb/
 loggings/
 

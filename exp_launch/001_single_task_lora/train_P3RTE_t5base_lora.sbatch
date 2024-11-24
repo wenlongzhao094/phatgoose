@@ -6,4 +6,4 @@
 #SBATCH --mem=400GB
 #SBATCH --output=/scratch2/workspace/wenlongzhao_umass_edu-SKD/dev_wenlong/phatgoose/exp_out/P3RTE_t5base_lora/slurm_%A.out
 
-bash train_single_task_P3RTE_t5base_loralinear.sh
+bash exp_launch/001_single_task_lora/train_P3RTE_t5base_lora.sh
