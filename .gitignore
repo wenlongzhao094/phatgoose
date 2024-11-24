@@ -1,6 +1,10 @@
-# Customized
-cache
-.idea
+# offline datasets dir
+src/datasets_offline/
+
+# experiment outputs
+exp_out/
+wandb/
+loggings/
 
 
 # Byte-compiled / optimized / DLL files
@@ -133,13 +137,8 @@ dmypy.json
 # Pyre type checker
 .pyre/
 
-# experiment outputs
-exp_out/
-wandb/
-loggings/
-
-# offline datasets dir
-src/datasets_offline/
-
 # VSCode settings
 .vscode/
+
+# PyCharm settings
+.idea/
