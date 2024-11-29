@@ -8,4 +8,4 @@ python src/launch_single_process.py \
 colm/datasets/p3_t5xl.gin \
 colm/datasets/flanv2_t5xl.gin \
 colm/datasets/bigbench.gin \
-exp_launch/010_eval_new_score_type/eval_T0HO_phatgoose_paper.gin
+exp_launch/010_eval_new_score_type/eval_T0HO_phatgoose_original.gin
