@@ -1,7 +1,8 @@
 # Addons are similar to hooks, however, they differ by:
 # 1. Addons are nn.Module rather than functions, which allows them to be trainable.
 # 2. Hooks are meant to be used in debuging or profiling, while addons are long-term modifications to the model.
-# 3. Addons are more flexible than hooks, they may have variables that controls their behavior, and the user can decide when to change the variables.
+# 3. Addons are more flexible than hooks, they may have variables that control their behavior, and
+# the user can decide when to change the variables.
 import torch.nn as nn
 
 
