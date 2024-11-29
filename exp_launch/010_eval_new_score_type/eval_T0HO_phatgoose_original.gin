@@ -89,15 +89,15 @@ P/EVALUATE/Evaluator:
     save_results = @save_results
     analysis_processors = [@WriteOutputText(), @RoutingDistribution()]
 
-save_results.save_dir = "exp_out/010_eval_new_score_type/eval_T0HO_phatgoose_original/"
+save_results.save_dir = "exp_out/${EXP_SET_AND_NAME}"
 P/EVALUATE/save_results.overwrite = True
 
 # based on save_results.save_dir
-WriteOutputText.save_dir = "exp_out/010_eval_new_score_type/eval_T0HO_phatgoose_original/output_text"
-RoutingDistribution.save_dir = "exp_out/010_eval_new_score_type/eval_T0HO_phatgoose_original/routing_distribution"
-EntropyDistribution.save_dir = "exp_out/010_eval_new_score_type/eval_T0HO_phatgoose_original/entropy_distribution"
+WriteOutputText.save_dir = "exp_out/${EXP_SET_AND_NAME}/output_text"
+RoutingDistribution.save_dir = "exp_out/${EXP_SET_AND_NAME}/routing_distribution"
+EntropyDistribution.save_dir = "exp_out/${EXP_SET_AND_NAME}/entropy_distribution"
 
 main:
     procedure_exec_order = ["P/EVALUATE"]
-    exp_name = "eval_T0HO_phatgoose_original"
+    exp_name = "${EXP_NAME}"
     global_seed = 42
