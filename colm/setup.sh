@@ -10,4 +10,4 @@ export HF_HOME=$PHATGOOSE_CASHE_DIR
 
 export TOKENIZERS_PARALLELISM=false
 
-export WANDB_PROJECT=2024-seqkd4da-phatgoose
+export WANDB_PROJECT=metaseqkd-pgoose
