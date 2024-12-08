@@ -14,15 +14,19 @@ from src.utils.constants import BOOL_PLACEHOLDER, LIST_PLACEHOLDER
 
 class MoELink:
     """
-    An MoE group consists of some number of moe layers and a router shared among them.
-    This class helps to connect the router and moe_layers together while avoid pytorch automatic registering submodules.
-    In particular, this class maintains an inventory: the list expert_identifiers tracks the meaning of each expert present in the router and moe layers.
+    This class wraps one or more moe_layers and a router together,
+    while avoiding pytorch automatic registering submodules.
+    1. The router generates weights for LoRA experts.
+    2. All moe_layers are on the same module of the language model.
+       Each moe_layer is a set of experts, e.g, an FFNExperts.
+    3. The expert_identifiers tracks the meaning of each expert.
     """
 
     def __init__(self):
         self.router = None
-        self.moe_layers = []
-        self.expert_identifiers = []
+        self.moe_layers = []  # Each moe_layer is a set of experts, e.g, an FFNExperts.
+        self.expert_identifiers = []  # {identifier_stem}_{number} TODO: use this to mask out the in-domain expert
+                                      # identifier_stem is typically an empty string
 
     def set_router(self, router):
         self.router = router
@@ -30,8 +34,10 @@ class MoELink:
     def add_moe_layer(self, moe_layer):
         self.moe_layers.append(moe_layer)
 
-    def extend(self, num_new_experts, identifier_stem):
+    def extend(self, num_new_experts, identifier_stem):  # called in extend_moe()
         start_number = 0
+
+        # maybe there already exists experts with the same identifier_stem
         for key_number in self.expert_identifiers[::-1]:
             key_number_split = key_number.split("_")
             number = int(key_number_split[-1])
@@ -39,6 +45,8 @@ class MoELink:
             if key == identifier_stem:
                 start_number = number + 1
                 break
+
+        # now add expert identifiers # TODO: use LoRA name instead of number?
         for number in range(start_number, start_number + num_new_experts):
             self.expert_identifiers.append(f"{identifier_stem}_{number}")
 
@@ -47,33 +55,27 @@ class MoELink:
 class ExtendableAddon(Addon):
     """
     An addon that can be extended to more experts.
-    The _extendable_parameters is a list of the names of the parameters that can be extended.
-    This class helps manage extending the number of experts, as well as saving and loading the extended parameters.
-    All ExtendableAddon has two working modes: separate_experts and not separate_experts.
-        1. In separate_experts mode, the parameters are separated by experts. When doing forward, we stack the experts to create a single tensor for better parallization.
-        2. In not separate_experts mode, the parameter of all experts are always stored in a single tensor. And the single tensor is split into separate experts in state_dict,
-        for the convenience of model management systems (e.g. git-theta).
+    Parameters corresponding to multiple experts can be initialized, loaded, and saved.
+
+    Parameters are separated by experts.
+    When doing forward, we stack the experts to create a single tensor for better parallelization.
     """
 
+    # A list of the names of the parameters that can be extended.
+    # Actual extendable parameters are named as self.{_extendable_parameters[i]}_{identifier_stem}_{number}
     _extendable_parameters = None
 
     def __init__(
         self,
         global_hidden_dict,
         moe_link,
-        separate_experts=False,
         pretrained_component=False,
         debug=False,
     ):
         super().__init__(global_hidden_dict)
-        self.moe_link = moe_link
-        self.separate_experts = separate_experts
+        self.moe_link = moe_link  # Wrapper for all addons on a module
         self.pretrained_component = pretrained_component
         self.debug = debug
-
-        if not self.separate_experts:
-            for parameter_name in self._extendable_parameters:
-                self.register_parameter(parameter_name, nn.UninitializedParameter())
 
     def _get_init_weights(self, num_new_experts):
         """
@@ -89,15 +91,10 @@ class ExtendableAddon(Addon):
             weight_init: str, "from_scratch" or "average"
         """
         with torch.no_grad():
-            from_uninitialized = self.num_experts == 0
-            if self.separate_experts:
-                self._assemble_extendable_parameters()
-            if from_uninitialized:
+            if self.num_experts == 0:
                 assert (
                     weight_init == "from_scratch"
                 ), """weight_init should be "from_scratch" when extending from uninitialized"""
-            else:
-                from_uninitialized = False
 
             if weight_init == "from_scratch":
                 new_parameter_data_dict = self._get_init_weights(num_new_experts)
@@ -106,45 +103,40 @@ class ExtendableAddon(Addon):
                 self._extendable_parameters is not None
             ), f"self._extendable_parameters is not specified in {self.__class__.__name__}"
             for parameter_name in self._extendable_parameters:
-                parameter = getattr(self, parameter_name)
-                if weight_init == "average":
+                if weight_init == "from_scratch":
+                    new_parameter_data = new_parameter_data_dict[parameter_name]
+
+                elif weight_init == "average":
+                    self._assemble_extendable_parameters()  # in the model, we always stack parameters of multiple experts
+                    parameter = getattr(self, parameter_name)
+
                     if self.pretrained_component:
                         new_parameter_data = (
-                            parameter[1:]
-                            .data.mean(dim=0, keepdim=True)
-                            .repeat(
-                                num_new_experts, *([1] * (parameter.data.dim() - 1))
-                            )
+                            parameter[1:].data.mean(    # mean over existing experts
+                                dim=0, keepdim=True
+                            ).repeat(num_new_experts, *([1] * (parameter.data.dim() - 1)))
                         )
                     else:
-                        new_parameter_data = parameter.data.mean(
-                            dim=0, keepdim=True
-                        ).repeat(num_new_experts, *([1] * (parameter.data.dim() - 1)))
-                elif weight_init == "from_scratch":
-                    new_parameter_data = new_parameter_data_dict[parameter_name]
-                if from_uninitialized and not self.separate_experts:
-                    parameter.materialize(new_parameter_data.size())
-                if self.separate_experts:
-                    new_expert_identifiers = self.moe_link.expert_identifiers[
-                        -num_new_experts:
-                    ]
-                    for idx, identifier in enumerate(new_expert_identifiers):
-                        setattr(
-                            self,
-                            f"{parameter_name}_{identifier}",
-                            nn.Parameter(new_parameter_data[idx]),
+                        new_parameter_data = (
+                            parameter.data.mean(
+                                dim=0, keepdim=True
+                            ).repeat(num_new_experts, *([1] * (parameter.data.dim() - 1)))
                         )
-                else:
-                    new_parameter_data = torch.cat(
-                        [parameter.data, new_parameter_data], dim=0
+
+                # Add the extendable parameter corresponding to the new experts to self
+                new_expert_identifiers = self.moe_link.expert_identifiers[-num_new_experts:]
+                for idx, identifier in enumerate(new_expert_identifiers):
+                    setattr(
+                        self,
+                        f"{parameter_name}_{identifier}",
+                        nn.Parameter(new_parameter_data[idx]),
                     )
-                    parameter.data = new_parameter_data
 
             self.num_experts += num_new_experts
 
     def _assemble_extendable_parameters(self):
         """
-        Assemble the extendable parameters. This function is only needed under separate_experts=True.
+        Assemble the extendable parameters.
         There are some cases where reassemble is unnecessary, but we do it all the time for simplicity.
         """
         for parameter_name in self._extendable_parameters:
@@ -153,105 +145,101 @@ class ExtendableAddon(Addon):
             else:
                 per_expert_parameters = [
                     getattr(self, f"{parameter_name}_{identifier}")
-                    for identifier in self.moe_link.expert_identifiers[
-                        : self.num_experts
-                    ]
-                ]
-                assembled_parameter = torch.stack(per_expert_parameters, dim=0)
-            setattr(
-                self,
-                parameter_name,
-                assembled_parameter,
-            )
+                    for identifier in self.moe_link.expert_identifiers[:self.num_experts]
+                ]  # all the previously existing experts
+                assembled_parameter = torch.stack(per_expert_parameters, dim=0)  # a new dimension for multiple experts
+            setattr(self, parameter_name, assembled_parameter)
 
     def _save_to_state_dict(self, destination, prefix, keep_vars):
-        if self.separate_experts:
-            super()._save_to_state_dict(destination, prefix, keep_vars)
-        else:
-            raise NotImplementedError()
+        super()._save_to_state_dict(destination, prefix, keep_vars)
 
     def _load_from_state_dict(
         self,
         state_dict,
-        prefix,
+        prefix,  # module_name?
         local_metadata,
         strict,
         missing_keys,
         unexpected_keys,
         error_msgs,
     ):
-        if self.separate_experts:
-            if len(self.moe_link.expert_identifiers) == 0:
-                assert (
-                    self.num_experts == 0
-                ), "num_experts should be 0 when expert_identifiers is empty"
-                # clear prefix names from keys in state_dict to get identifiers (key_numbers) since parameter name are "self._extendable_parameters[0]_identifier"
-                prefix_name = prefix + self._extendable_parameters[0] + "_"
-                key_numbers = []
-                for key in state_dict:
-                    if prefix_name in key:
-                        key_number = key.replace(prefix_name, "")
-                        key_numbers.append(key_number)
-                # add the expert numbers to each identifier stem
-                key_numbers = set(key_numbers)
-                identifier_stems = {}
-                for key_number in key_numbers:
-                    key_number_split = key_number.split("_")
-                    identifier_stem = "_".join(key_number_split[:-1])
-                    number = int(key_number_split[-1])
-                    if identifier_stem in identifier_stems:
-                        identifier_stems[identifier_stem].append(number)
-                    else:
-                        identifier_stems[identifier_stem] = [number]
-                # sort the numbers for each identifier stem
-                for identifier_stem in identifier_stems:
-                    identifier_stems[identifier_stem] = sorted(
-                        identifier_stems[identifier_stem]
-                    )
-                for identifier_stem in identifier_stems:
-                    self.moe_link.expert_identifiers.extend(
-                        [
-                            f"{identifier_stem}_{number}"
-                            for number in identifier_stems[identifier_stem]
-                        ]
-                    )
-            if self.num_experts == 0:
-                # when intialized from scratch, self.num_experts is zero even when self.moe_link.expert_identifiers is not empty since self.num_experts is not tied across router and expert layer
-                # we extend to create the required keys in the object so that load works
-                self.extend(len(self.moe_link.expert_identifiers))
+        if len(self.moe_link.expert_identifiers) == 0:  # {identifier_stem}_{number}
+            assert (
+                self.num_experts == 0
+            ), "num_experts should be 0 when expert_identifiers is empty"
 
-            super()._load_from_state_dict(
-                state_dict,
-                prefix,
-                local_metadata,
-                strict,
-                missing_keys,
-                unexpected_keys,
-                error_msgs,
-            )
-        else:
-            raise NotImplementedError()
+            # a key in a state_dict looks like
+            #   {prefix}{_extendable_parameters[0]}_{identifier_stem}_{number}
+            #
+            # parameter name should be "self.{_extendable_parameters[0]}_{identifier_stem}_{number}"
+            prefix_name = prefix + self._extendable_parameters[0] + "_"
+            key_numbers = []  # each element is {identifier_stem}_{number}
+            for key in state_dict:
+                if prefix_name in key:
+                    key_number = key.replace(prefix_name, "")
+                    key_numbers.append(key_number)
+
+            # add the expert numbers to each identifier stem
+            key_numbers = set(key_numbers)
+            identifier_stems = {}  # {identifier_stem: [number]}
+            for key_number in key_numbers:
+                key_number_split = key_number.split("_")
+                identifier_stem = "_".join(key_number_split[:-1])
+                number = int(key_number_split[-1])
+                if identifier_stem in identifier_stems:
+                    identifier_stems[identifier_stem].append(number)
+                else:
+                    identifier_stems[identifier_stem] = [number]
+
+            # sort the numbers for each identifier stem
+            for identifier_stem in identifier_stems:
+                identifier_stems[identifier_stem] = sorted(identifier_stems[identifier_stem])
+
+            for identifier_stem in identifier_stems:
+                self.moe_link.expert_identifiers.extend(
+                    [
+                        f"{identifier_stem}_{number}"
+                        for number in identifier_stems[identifier_stem]
+                    ]
+                )
+
+        if self.num_experts == 0:
+            # when loading from scratch, self.num_experts is zero even when self.moe_link.expert_identifiers
+            # is not empty since self.num_experts is not tied across router and expert layer
+            # we extend to create the required keys in the object so that load works
+            self.extend(len(self.moe_link.expert_identifiers))
+
+        super()._load_from_state_dict(  # function of nn.Module
+            state_dict,
+            prefix,
+            local_metadata,
+            strict,
+            missing_keys,
+            unexpected_keys,
+            error_msgs,
+        )
 
 
 @gin.configurable(
     allowlist=[
-        "d_router",
-        "router_type",
-        "score_type",
+        "d_router",  # hidden dimension
+        "router_type",  #  "top1", "smear", "st_gumbel", "smear_gumbel", "smear_st_gumbel"
+        "score_type",  # "original", "dot", "cosine", "weighted_cosine", "arrow"; "paper"
         "epsilon",
-        "scaling_scores",
-        "elementwise_affine",
-        "temperature",
+        "scaling_scores",  # boolean, divide by math.sqrt(self.d_router)
+        "elementwise_affine",  # boolean, use elementwise affine params gamma and beta in LayerNorm of vectors
+        "temperature",  # for the arrow score type and any gumbel softmax router type
         "anneal_step",
         "anneal_rate",
-        "router_norm_type",
-        "position",
-        "is_retriever",
+        "router_norm_type",  # normalize the expert embeddings before computing scores with the current hidden states:
+                             # layer_norm, l2_norm, none
+        "position",  # pre-forward or post-forward the add-on, can be "before" "beside" or "after"
+        "is_retriever",  # return one-hot weights for the expert with the highest score
     ],
 )
 class Router(ExtendableAddon):
     """
-    A router that can be extended to more experts.
+    A router on one module that can be extended to more experts.
     """
 
     has_pre_forward = BOOL_PLACEHOLDER
@@ -314,6 +302,7 @@ class Router(ExtendableAddon):
             "weighted_cosine",
             "original",
             "arrow",
+            "paper",  # as in the Phatgoose paper, top-k -> scale -> softmax TODO
         ]
         self.epsilon = epsilon
         self.parallel_axis = parallel_axis
@@ -333,7 +322,7 @@ class Router(ExtendableAddon):
             pass
         elif self.score_type == "weighted_cosine":
             self.weights = nn.Parameter(torch.ones(d_router))
-        elif self.score_type == "original":
+        elif self.score_type in ["original", "paper"]:
             self.router_layer_norm = nn.LayerNorm(
                 self.d_router, elementwise_affine=self.elementwise_affine
             )
@@ -341,9 +330,11 @@ class Router(ExtendableAddon):
                 self.d_router, elementwise_affine=self.elementwise_affine
             )
 
-    def _get_init_weights(self, num_new_experts):
-        expert_embeddings = torch.zeros(num_new_experts, self.d_router)
-        return {"expert_embeddings": expert_embeddings}
+    def _get_init_weights(self, num_new_experts):  # TODO
+        initial_weights = {
+            "expert_embeddings": torch.zeros(num_new_experts, self.d_router),
+        }
+        return initial_weights
 
     def _get_temperature_schedule(self, curr_temperature):
         temperature_schedule = {1: curr_temperature}
@@ -363,8 +354,8 @@ class Router(ExtendableAddon):
         """
         # TODO: (Should we normalize router_hidden_states using LayerNorm? or Is cosine routing good enough to prevent degeneracy?)
         hidden_states_dtype = router_hidden_states.dtype
-        if self.separate_experts:
-            self._assemble_extendable_parameters()
+        self._assemble_extendable_parameters()
+
         if self.is_retriever:
             # (num_experts, num_examples, 384)
             expert_embeddings = self.expert_embeddings.reshape(
@@ -377,10 +368,12 @@ class Router(ExtendableAddon):
             expert_embeddings = expert_embeddings.reshape(
                 -1, router_hidden_states.shape[-1]
             )
+
             # (B, 384)
             router_hidden_states = router_hidden_states / (
                 torch.norm(router_hidden_states, dim=-1, keepdim=True) + self.epsilon
             )
+
             routing_scores = torch.matmul(router_hidden_states, expert_embeddings.T)
             routing_scores = routing_scores.reshape(
                 router_hidden_states.shape[0], self.num_experts, -1
@@ -402,24 +395,28 @@ class Router(ExtendableAddon):
             )
             if self.score_type == "weighted_cosine":
                 expert_embeddings = expert_embeddings * self.weights
-        elif self.score_type == "original":
+        elif self.score_type == ["original", "paper"]:
             router_hidden_states = self.input_layer_norm(router_hidden_states)
             if self.router_norm_type == "layer_norm":
                 expert_embeddings = self.router_layer_norm(self.expert_embeddings)
             elif self.router_norm_type == "l2_norm":
                 expert_embeddings = self.expert_embeddings / (
-                    torch.norm(self.expert_embeddings, dim=-1, keepdim=True)
-                    + self.epsilon
+                    torch.norm(self.expert_embeddings, dim=-1, keepdim=True) + self.epsilon
                 )
             else:
                 expert_embeddings = self.expert_embeddings
-        scores = torch.matmul(router_hidden_states, expert_embeddings.T)
+
+        scores = torch.matmul(router_hidden_states, expert_embeddings.T)  # (batch size, num_experts)
+
         if self.score_type == "arrow":
             scores = torch.abs(scores / self.temperature)
+
         if self.scaling_scores:
             scores = scores * math.sqrt(1 / self.d_router)
+
         if self.router_type in ["smear", "top1"]:
             routing_weights = torch.softmax(scores, dim=-1)
+            # This is softmax over all experts, although the paper says it is softmax over the top-k experts
         elif self.router_type == "st-gumbel":
             if self.training:
                 U = torch.rand(scores.shape).to(self.config.device)
@@ -537,7 +534,7 @@ class Router(ExtendableAddon):
 )
 class FFNExperts(ExtendableAddon):
     """
-    This module is a MoE version of the adpater module.
+    This module is a MoE version of the adapter module.
     When setting non_linearity to identity, we can also use it to implement LoRA.
     """
 
@@ -627,7 +624,7 @@ class FFNExperts(ExtendableAddon):
             self.activation_fn = lambda x: x
         else:
             self.activation_fn = ACT2FN[non_linearity]
-        self._extendable_parameters = ["layer1", "layer2"]
+        self._extendable_parameters = ["layer1", "layer2"]  # LoRA A and B?
 
     def _get_init_weights(self, num_new_experts):
         layer1 = nn.Parameter(
@@ -648,12 +645,11 @@ class FFNExperts(ExtendableAddon):
         """
         Args:
             input_hidden: (..., seq_len, d_in)
-            routing_weights: (..., num_experts), one-hot or soft distribution # TODO: exp(dot product)?
+            routing_weights: (..., num_experts), one-hot or soft weights
         Returns:
             output_hidden: (..., seq_len, d_out)
         """
-        if self.separate_experts:
-            self._assemble_extendable_parameters()
+        self._assemble_extendable_parameters()
 
         if len(routing_weights.shape) == 3:
             # code adapted from https://github.com/davidmrau/mixture-of-experts/blob/master/moe.py
@@ -678,7 +674,7 @@ class FFNExperts(ExtendableAddon):
             if self.normalize_topk:
                 topk_weights = topk_weights / (
                     torch.sum(topk_weights, dim=-1, keepdim=True) + self.epsilon
-                )  # should be softmax?
+                )  # TODO: softmax
             topk_weights = topk_weights.to(routing_weights.dtype)  # (bs*seq_len, topk_value)
             zeros = torch.zeros_like(routing_weights)  # (bs*seq_len, num_experts)
             gates = zeros.scatter(1, topk_indices, topk_weights)
@@ -973,8 +969,7 @@ class ScalerExperts(ExtendableAddon):
         Returns:
             output_hidden: (..., seq_len, d_hidden)
         """
-        if self.separate_experts:
-            self._assemble_extendable_parameters()
+        self._assemble_extendable_parameters()
         if self.one_hot:
             one_hot_value, one_hot_indices = routing_weights.max(dim=-1)  # (..., )
             active_scaling_vector = (

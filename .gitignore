@@ -6,7 +6,7 @@ src/datasets_offline/*
 exp_out/*
 !exp_out/slurm_logs
 exp_out/slurm_logs/*
-!exp_out/slurm_logs/.gitkeep
+!exp_out/.gitkeep
 wandb/
 loggings/
 
