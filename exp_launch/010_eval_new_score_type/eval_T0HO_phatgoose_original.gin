@@ -1,0 +1,104 @@
+import src.models
+import src.models.addons
+import src.models.manipulations
+import src.procedures
+import src.procedures.utils
+import src.utils.logging
+
+
+# --- T5-XL Model Architecture ---
+M/MODEL/hf_torch_model:
+    model_class = "seq2seq_lm"
+    model_name_or_path = "google/t5-xl-lm-adapt"
+
+M/MODEL/hf_tokenizer:
+    model_name_or_path = "google/t5-xl-lm-adapt"
+
+M/MODEL/InterfaceMixin:
+    language_modeling_interface = "lm_4encdec"
+    generation_interface = "gen_4encdec"
+    mutiple_choice_interface = "mc_byppl_4encdec"
+
+M/MODEL/build.cls = @Model
+M/MODEL/Model:
+    torch_model = @hf_torch_model()
+    tokenizer = @hf_tokenizer()
+    trainable_params = "none"
+    mix_precision = "bf16"
+    init_moma_calls = [@M/MODEL/ENCODER/watch_hiddens, @M/MODEL/DECODER/watch_hiddens, @M/MODEL/ENCODER/make_moe, @M/MODEL/DECODER/make_moe, @M/MODEL/load_weights]
+M/MODEL/load_weights.weight_path = "exp_out/P3_Phatgoose/best.pt"
+
+
+# --- MoE AddOn Architecture ---
+# separate_experts is removed from the original phatgoose implementation since it is not used
+# M/MODEL/ExtendableAddon.separate_experts = True
+
+# ExposeHidden
+M/MODEL/ExposeHidden.reduction_method = None
+M/MODEL/ENCODER/ExposeHidden.reduction_method = None
+M/MODEL/DECODER/ExposeHidden.reduction_method = None
+M/MODEL/ENCODER/ExposeHidden.position = "before"
+M/MODEL/DECODER/ExposeHidden.position = "before"
+
+M/MODEL/watch_hiddens:
+    prepare_mask_modules = "encoder"
+    prepare_mask_addon_name = "prepare_mask"
+M/MODEL/ENCODER/watch_hiddens:
+    expose_hidden_modules = "encoder_linear"
+    expose_hiddens_addon_name = "pre_expose_hiddens"
+M/MODEL/DECODER/watch_hiddens:
+    expose_hidden_modules = "decoder_linear"
+    expose_hiddens_addon_name = "pre_expose_hiddens"
+
+M/MODEL/Router:
+    d_router = "host_module.in_features"
+    score_type = "original"
+    scaling_scores = True
+    elementwise_affine = False
+
+M/MODEL/FFNExperts:
+    non_linearity = "identity"
+    position = "beside"
+    d_in = "host_module.in_features"
+    d_out = "host_module.out_features"
+    d_bottleneck = 16
+    topk_value = 2
+    normalize_topk = True
+    divide_by_d_bottleneck = True
+
+M/MODEL/make_moe:
+    expert_class = "ffn"
+    router_addon_name = "router"
+    expert_addon_name = "expert_lora"
+M/MODEL/ENCODER/make_moe:
+    expert_modules = "encoder_linear"
+    router_modules = "encoder_linear"
+    expose_hiddens_addon_name = "pre_expose_hiddens"
+    router_addon_name = "router"
+M/MODEL/DECODER/make_moe:
+    expert_modules = "decoder_linear"
+    router_modules = "decoder_linear"
+    expose_hiddens_addon_name = "pre_expose_hiddens"
+    router_addon_name = "router"
+
+
+# --- Evaluation ---
+P/EVALUATE/build.cls = @Evaluator
+P/EVALUATE/Evaluator:
+    model = "M/MODEL"
+    datasets = ["D/P3RTE/EVAL", "D/P3HSWAG/EVAL", "D/P3COPA/EVAL", "D/P3WIC/EVAL", "D/P3WINOGRANDE/EVAL", "D/P3CB/EVAL", "D/P3STORYCLOZE/EVAL", "D/P3ANLI/R1/EVAL", "D/P3ANLI/R2/EVAL", "D/P3ANLI/R3/EVAL", "D/P3WSCFIXED/EVAL"]
+    save_results = @save_results
+    analysis_processors = [@WriteOutputText(), @RoutingDistribution()]
+
+save_results.save_dir = "exp_out/${EXP_SET_AND_NAME}"
+P/EVALUATE/save_results.overwrite = True
+
+# based on save_results.save_dir
+WriteOutputText.save_dir = "exp_out/${EXP_SET_AND_NAME}/output_text"
+RoutingDistribution.save_dir = "exp_out/${EXP_SET_AND_NAME}/routing_distribution"
+EntropyDistribution.save_dir = "exp_out/${EXP_SET_AND_NAME}/entropy_distribution"
+
+main:
+    procedure_exec_order = ["P/EVALUATE"]
+    exp_name = "${EXP_NAME}"
+    global_seed = 42

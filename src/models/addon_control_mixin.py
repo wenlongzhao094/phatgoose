@@ -11,11 +11,14 @@ class AddonHostMixin(nn.Module):
     AddonHostMixin is a mixin that allow to attach addons to a module.
     Addons acts similar to hooks, but they are nn.Module rather than functions.
     Before adding any addon, we need to use AddonHostMixin to augment an existing module object.
-    Overall, this design serves to manipulate a pretrained model while avoiding copying specific model implementations for other packages.
+    Overall, this design serves to manipulate a pretrained model while
+    avoiding copying specific model implementations for other packages.
 
-    An addon can have pre and post forword calls, the first one take place before the host module forward pass, and the second one take place after the host module forward pass.
+    An addon can have pre and post forward calls, the first one take place before the host module forward pass,
+    and the second one take place after the host module forward pass.
     One host module can have multiple addons, but each addon need to have a unique name.
-    Since multiple addon calls will happen sequtially, when inserting one more addon to a module with existing addons, you will need to speificy the call order:
+    Since multiple addon calls will happen sequentially,
+    when inserting one more addon to a module with existing addons, you will need to specify the call order:
         call_order "first" use both pre&post_forward_call before other addons
         call_order "last" use both pre&post_forward_call after other addons
         call_order "inner" use pre_forward_call after other addons and post_forward_call before other addons

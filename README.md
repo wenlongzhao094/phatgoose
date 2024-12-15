@@ -24,11 +24,12 @@ Run `source colm/setup.sh` each time you initiate an environment to ensure that 
 Below are the steps for required for PHATGOOSE and other baselines:
 
 ### Train a Single LoRA on a Dataset
-Use the example command below to train:
 ```shell
-bash colm/experiments/bash_scripts/train_single_task_loralinear.sh -exp_name P3Socialiqa_t5xl_lora -dataset P3SOCIALIQA -extra_bindings 'P/TRAIN/Trainer.gradient_accumulation_factor=32';
+bash colm/experiments/bash_scripts/train_single_task_loralinear.sh -exp_name P3Socialiqa_t5xl_lora -dataset P3SOCIALIQA -extra_bindings 'MOMA/save_weights.should_save_to_gcp=False P/TRAIN/Trainer.gradient_accumulation_factor=32';
 ```
-*Note: Ensure the `gradient_accumulation_factor` is set according to the batch_size in `colm/datasets/<file>.gin` files. so that effective batch_size=1024*
+- Training a model always saves to GCP. If this is not intended, you can add `MOMA/save_weights.should_save_to_gcp=False` in the extra_bindings of training commands.
+- Ensure the `gradient_accumulation_factor` is set according to the batch_size in `colm/datasets/<file>.gin` files so that effective batch_size=1024.
+
 
 ### Convert into MoE Style with a Single Expert
 ```shell
@@ -41,12 +42,6 @@ python scripts/manipulations.py --gin_bindings 'put_index_to_lora.path="P3Social
 bash colm/experiments/bash_scripts/train_gate.sh -exp_name datasets_concatenated/P3Socialiqa_t5xl_lora_inpgatetrainnogumbel -dataset P3SOCIALIQA -old_exp_name datasets_concatenated/P3Socialiqa_t5xl_lora -extra_bindings 'main.logging_backend=None P/TRAIN/Trainer.gradient_accumulation_factor=32';
 ```
 *Note: We don't perform any logging while gate training, but it can be added by setting `main.logging_backend="wandb"` if needed.*
-
-### Avoid Saving to GCP Unintentionally
-Training a model always saves to GCP. If this is not intended, you can add `MOMA/save_weights.should_save_to_gcp=False` in the extra_bindings of training commands. For example:
-```shell
-bash colm/experiments/bash_scripts/train_single_task_loralinear.sh -exp_name P3Socialiqa_t5xl_lora -dataset P3SOCIALIQA -extra_bindings 'MOMA/save_weights.should_save_to_gcp=False P/TRAIN/Trainer.gradient_accumulation_factor=32';
-```
 
 ### Make Trained Gate as the Routing Vector
 Modify the checkpoint by running:
