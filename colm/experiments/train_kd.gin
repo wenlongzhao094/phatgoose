@@ -5,8 +5,9 @@ import src.models.addons
 import src.models.manipulations
 import src.utils.logging
 
-P/TRAIN/build.cls = @Trainer
-P/TRAIN/Trainer:
+P/TRAIN/build.cls = @TrainerKD
+P/TRAIN/TrainerKD:
+    teacher_model = "M/TEACHER_MODEL"
     model = "M/MODEL"
     validate_procedure = "P/EVALUATE"
     report_step_interval = 10
@@ -18,7 +19,20 @@ P/TRAIN/Trainer:
         @MOMA/DONE/save_weights,
         @MOMA/DONE/load_weights,
     ]
-MOMA/save_weights.should_save_to_gcp = True
+    datasets = "D/P3RTE/TRAIN"
+    batcher = @P/TRAIN/SingleTaskBatcher()
+    num_steps = 1000
+    validation_step_interval = 100
+    gradient_accumulation_factor = 32
+
+
+P/TRAIN/SingleTaskBatcher:
+    shuffle = True
+    drop_last = True
+    num_workers = 8
+
+
+MOMA/save_weights.should_save_to_gcp = False
 MOMA/save_weights.save_params = ".*expert.*"
 MOMA/TRAIN/save_weights:
     add_global_step = True
@@ -45,6 +59,8 @@ P/EVALUATE/Evaluator:
     better_model_moma_calls = [
         @MOMA/BEST/save_weights,
     ]
+    datasets = "D/P3RTE/EVAL"
+
 P/EVALUATE/HELDOUT/Evaluator:
     datasets = ["D/P3RTE/EVAL", "D/P3HSWAG/EVAL", "D/P3COPA/EVAL", "D/P3WIC/EVAL", "D/P3WINOGRANDE/EVAL", "D/P3CB/EVAL", "D/P3STORYCLOZE/EVAL", "D/P3ANLI/R1/EVAL", "D/P3ANLI/R2/EVAL", "D/P3ANLI/R3/EVAL", "D/P3WSCFIXED/EVAL"]
     better_model_moma_calls = []
@@ -52,12 +68,26 @@ MOMA/BEST/save_weights:
     weight_path = "exp_out/${EXP_NAME}/best.pt"
 save_results.save_dir = "exp_out/${EXP_NAME}"
 
+M/TEACHER_MODEL/Model.trainable_params = "none"
+M/TEACHER_MODEL/load_weights.weight_path = "exp_out/P3_Phatgoose/best.pt"
+M/TEACHER_MODEL/Model.init_moma_calls = [@M/TEACHER_MODEL/ENCODER/watch_hiddens, @M/TEACHER_MODEL/DECODER/watch_hiddens, @M/TEACHER_MODEL/ENCODER/make_moe, @M/TEACHER_MODEL/DECODER/make_moe, @M/TEACHER_MODEL/load_weights]
+M/TEACHER_MODEL/ExtendableAddon.separate_experts = True
+
+
+M/TEACHER_MODEL/FFNExperts.topk_value=2
+M/TEACHER_MODEL/FFNExperts.normalize_topk=True
+M/TEACHER_MODEL/ENCODER/ExposeHidden.reduction_method=None
+M/TEACHER_MODEL/DECODER/ExposeHidden.reduction_method=None
+M/MODEL/Router.score_type="original"
+M/MODEL/Router.scaling_scores=True
+M/MODEL/Router.elementwise_affine=False
+
 M/MODEL/Model.trainable_params = "expert"
 M/MODEL/Model.init_moma_calls = [@M/MODEL/ENCODER/watch_hiddens, @M/MODEL/DECODER/watch_hiddens, @M/MODEL/ENCODER/make_moe, @M/MODEL/DECODER/make_moe, @M/MODEL/extend_moe]
 
 M/MODEL/ExtendableAddon.separate_experts = True
 
 main:
-    procedure_exec_order = ["P/EVALUATE", "P/TRAIN", "P/EVALUATE", "P/EVALUATE/HELDOUT"]
+    procedure_exec_order = ["P/EVALUATE", "P/TRAIN", "P/EVALUATE"]
     exp_name = "${EXP_NAME}"
     global_seed = 42

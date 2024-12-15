@@ -5,12 +5,12 @@ from collections import defaultdict
 import gin
 import numpy as np
 import torch
-
+import copy
 import src.utils.logging as logging
 from src.procedures.procedure import Procedure
 from src.procedures.utils.batcher import MultiTaskBatcher, SingleTaskBatcher
 from src.procedures.utils.optimizer_scheduler import get_optimizer, get_scheduler
-
+from src.procedures.utils.skd_utils import compute_kd_loss_ce, count_parameters
 
 # Make the order consistent and reasonable
 @gin.configurable(
@@ -35,8 +35,8 @@ from src.procedures.utils.optimizer_scheduler import get_optimizer, get_schedule
         "pass_current_step",
     ],
 )
-class Trainer(Procedure):
-    linking_fields = ["model", "datasets", "validate_procedure"]
+class TrainerKD(Procedure):
+    linking_fields = ["teacher_model", "model", "datasets", "validate_procedure"]
 
     def __init__(
         self,
@@ -61,7 +61,7 @@ class Trainer(Procedure):
         **kwargs,
     ):
         super().__init__(*args, **kwargs)
-        self.teacher_model = self.teacher_model
+        self.teacher_model = teacher_model
         self.model = model
         self.datasets = datasets
         self.validate_procedure = validate_procedure
@@ -143,12 +143,56 @@ class Trainer(Procedure):
                 batch_inputs = next(data_iter)
                 # TODO: Assuming all datasets have the same interface during training i.e lm
                 batch_dataset = self.datasets[0]
+
+
+                # Check trainable params in the student and teacher model
+                # count_parameters(self.model.torch_model)
+                # count_parameters(self.teacher_model.torch_model)
+
+
+
+                # Use the teacher model to generate tokens and use them as ground truth labels for the student model
+                # deepcopy batch_dataset to a new variable
+                batch_dataset_override = copy.deepcopy(batch_dataset)
+                batch_dataset_override.interface_info.interface = 'gen'
+                # batch_dataset_override.
+                # teacher_interface_override = 'gen_4encdec' if 't5' in self.model.model_name_or_path else 'gen_4dec'
+                # teacher_interface_override = 'gen_4encdec'
+
+                teacher_batch_outputs = self.teacher_model(batch_inputs, batch_dataset_override.interface_info, {})
+
+
+
+                # Modify the teacher_batch_outputs['sequences'] by removing the first token from each sequence
+                teacher_batch_outputs['output_ids'] = [sequence[1:] for sequence in teacher_batch_outputs['output_ids']]
+                teacher_batch_outputs['output_ids'] = torch.stack(teacher_batch_outputs['output_ids'], dim=0)
+                # print("teacher_batch_outputs['output_ids'][0]: ", teacher_batch_outputs['output_ids'][:5])
+
+
+                # Modify the target_ids in batch_inputs by replacing them with the teacher_batch_outputs['sequences']
+                # print("Before: batch_inputs['target_ids'][0]: ", batch_inputs['target_ids'][:5])
+                batch_inputs['target_ids'] = teacher_batch_outputs['output_ids'].cpu().detach()
+                # print("After: batch_inputs['target_ids'][0]: ", batch_inputs['target_ids'][:5])
+
                 batch_outputs = self.model(
                     batch_inputs,
                     batch_dataset.interface_info,
                     self.prepare_passing_global_hiddens(),
                 )
-                loss = batch_outputs["loss"]
+
+
+                loss_1 = batch_outputs["loss"]
+
+                # Compute KD Loss
+                loss = compute_kd_loss_ce(
+                    student_logits=batch_outputs["logits"],
+                    teacher_logits=teacher_batch_outputs["logits"],
+                    temperature=2.0
+                )
+
+                loss = (loss_1 + loss)/2
+
+
                 scaled_loss = loss / self.gradient_accumulation_factor
                 if self.loss_scaler is not None:
                     scaled_loss = self.loss_scaler.scale(scaled_loss)
@@ -158,6 +202,8 @@ class Trainer(Procedure):
                     loss=loss,
                     global_hidden_dict=self.model.global_hidden_dict,
                 )
+
+
 
             if self.loss_scaler is not None:
                 self.loss_scaler.unscale_(self.optimizer)

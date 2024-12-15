@@ -1,5 +1,24 @@
 import src.models
 
+M/TEACHER_MODEL/hf_torch_model:
+    model_class = "seq2seq_lm"
+    model_name_or_path = "google/t5-xl-lm-adapt"
+
+M/TEACHER_MODEL/hf_tokenizer:
+    model_name_or_path = "google/t5-xl-lm-adapt"
+
+M/TEACHER_MODEL/InterfaceMixin:
+    language_modeling_interface = "lm_4encdec"
+    generation_interface = "gen_4encdec"
+    mutiple_choice_interface = "mc_byppl_4encdec"
+
+M/TEACHER_MODEL/build.cls = @Model
+M/TEACHER_MODEL/Model:
+    torch_model = @hf_torch_model()
+    tokenizer = @hf_tokenizer()
+    trainable_params = "all"
+    mix_precision = "bf16"
+
 M/MODEL/hf_torch_model:
     model_class = "seq2seq_lm"
     model_name_or_path = "google/t5-xl-lm-adapt"

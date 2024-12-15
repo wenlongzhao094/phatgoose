@@ -686,7 +686,7 @@ D/P3RTE/P3Dataset:
 
 D/P3RTE/TRAIN/build.cls = @P3Dataset
 D/P3RTE/TRAIN/P3Dataset:
-    batch_size = 32
+    batch_size = 16
     split = "train"
     max_examples_per_dataset = 500_000
 

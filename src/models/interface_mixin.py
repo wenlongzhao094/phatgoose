@@ -197,9 +197,11 @@ class InterfaceMixin:
             input_ids=input_ids,
             attention_mask=attention_mask,
             labels=target_labels,
+            return_dict=True
         )
         batch_output = {
             "loss": 0.0,
+            "logits": model_output.logits,
         }
         global_hidden_updates[("loss", "interface", "lm")] = model_output.loss
         return batch_output, global_hidden_updates
@@ -256,10 +258,15 @@ class InterfaceMixin:
             attention_mask=attention_mask,
             num_beams=num_beams,
             max_length=max_gen_length,
+            output_scores=True,
+            return_dict_in_generate=True,
         )
-        output_text = tokenizer.batch_decode(output_ids, skip_special_tokens=True)
+        output_text = tokenizer.batch_decode(output_ids['sequences'], skip_special_tokens=True)
 
-        batch_output = {"output_ids": output_ids, "output_text": output_text}
+        # Modify the teacher_batch_outputs['logits'] to be a tensor of shape (batch_size, seq_len, vocab_size) instead of a tuple where each element is a tensor of shape (batch_size, vocab_size)
+        output_ids['logits'] = torch.stack(output_ids['scores'], dim=1)
+
+        batch_output = {"output_ids": output_ids['sequences'], "output_text": output_text, "logits": output_ids['logits']}
         return batch_output, global_hidden_updates
 
     @staticmethod
@@ -283,9 +290,11 @@ class InterfaceMixin:
             attention_mask=attention_mask,
             num_beams=num_beams,
             max_length=max_gen_length + input_length,
+            output_scores=True,
+            return_dict_in_generate=True,
         )
-        output_ids = output_ids[..., input_length:]
-        output_text = tokenizer.batch_decode(output_ids, skip_special_tokens=True)
+        output_ids['sequences'] = output_ids['sequences'][..., input_length:]
+        output_text = tokenizer.batch_decode(output_ids['sequences'], skip_special_tokens=True)
 
         batch_output = {"output_ids": output_ids, "output_text": output_text}
         return batch_output, global_hidden_updates

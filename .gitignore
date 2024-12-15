@@ -10,6 +10,7 @@ exp_out/slurm_logs/*
 wandb/
 loggings/
 
+colm/setup.sh
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

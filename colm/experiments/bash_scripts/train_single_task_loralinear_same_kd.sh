@@ -48,9 +48,10 @@ echo -e "Using LoRA adapter\n"
 EXP_NAME=${EXP_NAME} python src/launch_single_process.py \
 --gin_files colm/datasets/p3_t5xl.gin \
 colm/datasets/flanv2_t5xl.gin \
-colm/models/${MODEL_TYPE}/t5.gin \
+colm/models/t5xl/t5.gin \
+colm/models/t5xl/moe_lora_rank16_a2_teacher.gin \
 colm/models/moe_lora_rank16.gin \
-colm/experiments/train_single_task_loralinear.gin colm/experiments/wandb.gin \
---gin_bindings \
-P/TRAIN/Trainer.datasets=\"D/${DATASET}/TRAIN\" P/EVALUATE/Evaluator.datasets=\"D/${DATASET}/EVAL\" \
-${EXTRA_BINDINGS}
+colm/experiments/train_single_task_loralinear_kd.gin \
+colm/experiments/wandb.gin \
+--gin_bindings P/TRAIN/Trainer.datasets=\"D/${DATASET}/TRAIN\" \
+P/EVALUATE/Evaluator.datasets=\"D/${DATASET}/EVAL\" ${EXTRA_BINDINGS}
