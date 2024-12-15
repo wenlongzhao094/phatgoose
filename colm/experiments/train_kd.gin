@@ -71,7 +71,7 @@ save_results.save_dir = "exp_out/${EXP_NAME}"
 M/TEACHER_MODEL/Model.trainable_params = "none"
 M/TEACHER_MODEL/load_weights.weight_path = "exp_out/P3_Phatgoose/best.pt"
 M/TEACHER_MODEL/Model.init_moma_calls = [@M/TEACHER_MODEL/ENCODER/watch_hiddens, @M/TEACHER_MODEL/DECODER/watch_hiddens, @M/TEACHER_MODEL/ENCODER/make_moe, @M/TEACHER_MODEL/DECODER/make_moe, @M/TEACHER_MODEL/load_weights]
-M/TEACHER_MODEL/ExtendableAddon.separate_experts = True
+
 
 
 M/TEACHER_MODEL/FFNExperts.topk_value=2
@@ -85,7 +85,7 @@ M/MODEL/Router.elementwise_affine=False
 M/MODEL/Model.trainable_params = "expert"
 M/MODEL/Model.init_moma_calls = [@M/MODEL/ENCODER/watch_hiddens, @M/MODEL/DECODER/watch_hiddens, @M/MODEL/ENCODER/make_moe, @M/MODEL/DECODER/make_moe, @M/MODEL/extend_moe]
 
-M/MODEL/ExtendableAddon.separate_experts = True
+
 
 main:
     procedure_exec_order = ["P/EVALUATE", "P/TRAIN", "P/EVALUATE"]

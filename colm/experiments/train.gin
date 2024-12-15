@@ -55,7 +55,7 @@ save_results.save_dir = "exp_out/${EXP_NAME}"
 M/MODEL/Model.trainable_params = "expert"
 M/MODEL/Model.init_moma_calls = [@M/MODEL/ENCODER/watch_hiddens, @M/MODEL/DECODER/watch_hiddens, @M/MODEL/ENCODER/make_moe, @M/MODEL/DECODER/make_moe, @M/MODEL/extend_moe]
 
-M/MODEL/ExtendableAddon.separate_experts = True
+
 
 main:
     procedure_exec_order = ["P/EVALUATE", "P/TRAIN", "P/EVALUATE", "P/EVALUATE/HELDOUT"]

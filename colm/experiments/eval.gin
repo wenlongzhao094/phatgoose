@@ -29,7 +29,7 @@ M/MODEL/Model.trainable_params = "none"
 M/MODEL/load_weights.weight_path = "exp_out/${EXP_NAME}/best.pt"
 M/MODEL/Model.init_moma_calls = [@M/MODEL/ENCODER/watch_hiddens, @M/MODEL/DECODER/watch_hiddens, @M/MODEL/ENCODER/make_moe, @M/MODEL/DECODER/make_moe, @M/MODEL/load_weights]
 
-M/MODEL/ExtendableAddon.separate_experts = True
+
 
 main:
     procedure_exec_order=["P/EVALUATE"]
