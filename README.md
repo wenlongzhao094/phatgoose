@@ -14,11 +14,11 @@ Follow these steps to set up the PHATGOOSE environment:
 
 2. **Install Required Packages**:
    ```shell
-   source colm/setup.sh
+   source exp_launch/setup_environment_variable.sh
    pip install -r requirements.txt
    pip install -r requirements-dev.txt
    ```
-Run `source colm/setup.sh` each time you initiate an environment to ensure that the environment paths are correctly set.
+Run `source exp_launch/setup_environment_variable.sh` each time you initiate an environment to ensure that the environment paths are correctly set.
 
 ## Training Procedure
 Below are the steps for required for PHATGOOSE and other baselines:
