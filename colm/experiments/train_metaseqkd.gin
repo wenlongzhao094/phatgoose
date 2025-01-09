@@ -5,8 +5,8 @@ import src.models.addons
 import src.models.manipulations
 import src.utils.logging
 
-P/TRAIN/build.cls = @TrainerKD
-P/TRAIN/TrainerKD:
+P/TRAIN/build.cls = @TrainerMetaSeqKD
+P/TRAIN/TrainerMetaSeqKD:
     teacher_model = "M/TEACHER_MODEL"
     model = "M/MODEL"
     validate_procedure = "P/EVALUATE"
@@ -19,6 +19,19 @@ P/TRAIN/TrainerKD:
         @MOMA/DONE/save_weights,
         @MOMA/DONE/load_weights,
     ]
+    datasets = "D/P3RTE/TRAIN"
+    batcher = @P/TRAIN/SingleTaskBatcher()
+    num_steps = 1000
+    validation_step_interval = 100
+    gradient_accumulation_factor = 32
+    ilr = 1e-6
+
+
+P/TRAIN/SingleTaskBatcher:
+    shuffle = True
+    drop_last = True
+    num_workers = 8
+
 
 MOMA/save_weights.should_save_to_gcp = False
 MOMA/save_weights.save_params = ".*expert.*"
@@ -28,16 +41,20 @@ MOMA/TRAIN/save_weights:
 MOMA/DONE/save_weights.weight_path = "exp_out/${EXP_NAME}/finish.pt"
 MOMA/DONE/load_weights.weight_path = "exp_out/${EXP_NAME}/best.pt"
 
-P/TRAIN/get_optimizer:
+P/TRAIN/get_metaseqkd_optimizers:
     optimizer_class = "adamw"
+    teacher_learning_rate = 5e-3
     learning_rate = 5e-3
     weight_decay = 0.0
     scale_parameter = 1.0
     relative_step = False
 
-P/TRAIN/get_scheduler:
+P/TRAIN/get_metaseqkd_schedulers:
     scheduler_class = "constant_with_warmup"
     warmup_ratio = 0.06
+
+
+
 
 P/EVALUATE/build.cls = @Evaluator
 P/EVALUATE/Evaluator:
@@ -47,6 +64,7 @@ P/EVALUATE/Evaluator:
     better_model_moma_calls = [
         @MOMA/BEST/save_weights,
     ]
+    datasets = "D/P3RTE/EVAL"
 
 P/EVALUATE/HELDOUT/Evaluator:
     datasets = ["D/P3RTE/EVAL", "D/P3HSWAG/EVAL", "D/P3COPA/EVAL", "D/P3WIC/EVAL", "D/P3WINOGRANDE/EVAL", "D/P3CB/EVAL", "D/P3STORYCLOZE/EVAL", "D/P3ANLI/R1/EVAL", "D/P3ANLI/R2/EVAL", "D/P3ANLI/R3/EVAL", "D/P3WSCFIXED/EVAL"]
@@ -65,7 +83,6 @@ M/TEACHER_MODEL/FFNExperts.topk_value=2
 M/TEACHER_MODEL/FFNExperts.normalize_topk=True
 M/TEACHER_MODEL/ENCODER/ExposeHidden.reduction_method=None
 M/TEACHER_MODEL/DECODER/ExposeHidden.reduction_method=None
-
 M/MODEL/Router.score_type="original"
 M/MODEL/Router.scaling_scores=True
 M/MODEL/Router.elementwise_affine=False

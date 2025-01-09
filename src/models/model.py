@@ -2,7 +2,7 @@ from collections import OrderedDict
 
 import gin
 import torch
-
+import torch.nn as nn
 from src.models.addon_control_mixin import AddonControlMixin
 from src.models.interface_mixin import InterfaceMixin
 from src.models.manipulations.basic import (
@@ -23,7 +23,7 @@ from src.models.manipulations.basic import (
         "pass_batch_input",
     ]
 )
-class Model(AddonControlMixin, InterfaceMixin):
+class Model(nn.Module, AddonControlMixin, InterfaceMixin):
     def __init__(
         self,
         name,
@@ -38,6 +38,9 @@ class Model(AddonControlMixin, InterfaceMixin):
         *args,
         **kwargs,
     ):
+        nn.Module.__init__(self)
+        AddonControlMixin.__init__(self, *args, **kwargs)
+        InterfaceMixin.__init__(self, *args, **kwargs)
         self.global_hidden_dict = OrderedDict()
         self.name = name
         self.torch_model = torch_model
@@ -47,7 +50,7 @@ class Model(AddonControlMixin, InterfaceMixin):
         self.parallelism = parallelism
         self.device = device
         self.pass_batch_input = pass_batch_input
-        super().__init__(*args, **kwargs)
+        # super().__init__(*args, **kwargs)
 
         for moma_call in init_moma_calls:
             moma_call(self)

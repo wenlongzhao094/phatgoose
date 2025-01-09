@@ -1,0 +1,3 @@
+include 'colm/experiments/train_metaseqkd.gin'
+
+M/MODEL/Model.init_moma_calls = [@M/MODEL/modify_with_lora]

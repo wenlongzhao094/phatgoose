@@ -76,6 +76,8 @@ class AddonHostMixin(nn.Module):
                 args, kwargs = addon.pre_forward(*args, **kwargs)
             else:
                 addon.pre_forward(*args, **kwargs)
+        # print("args: ", args)
+        # print("kwargs: ", kwargs)
         module_outputs = super().forward(*args, **kwargs)
         for addon_name in self._post_forward_calls:
             addon = self._addons[addon_name]

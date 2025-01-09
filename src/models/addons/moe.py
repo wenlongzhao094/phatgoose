@@ -395,7 +395,8 @@ class Router(ExtendableAddon):
             )
             if self.score_type == "weighted_cosine":
                 expert_embeddings = expert_embeddings * self.weights
-        elif self.score_type == ["original", "paper"]:
+        # TODO: Jay: verify original / paper
+        elif self.score_type in ["original", "paper"]:
             router_hidden_states = self.input_layer_norm(router_hidden_states)
             if self.router_norm_type == "layer_norm":
                 expert_embeddings = self.router_layer_norm(self.expert_embeddings)

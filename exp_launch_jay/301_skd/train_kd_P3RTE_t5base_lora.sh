@@ -1,6 +1,6 @@
 #!/bin/bash
 hostname
-source colm/setup.sh
+source exp_launch_jay/setup_jay.sh
 bash colm/experiments/bash_scripts/train_single_task_loralinear_kd.sh \
 -exp_name P3RTE_b32_t5_base_lora_kd_teacher_logits_hard_labels_avg \
 -dataset P3RTE \

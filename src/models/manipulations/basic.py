@@ -88,6 +88,8 @@ def set_device_and_parallelism(
     else:
         # TODO: Is _device_type "cuda" here?
         devices = device.split(",")
+    # TODO: Jay: Find a place to set parallelism type
+    # parallelism = "pipeline"
     if len(devices) > 1:
         assert (
             parallelism is not None

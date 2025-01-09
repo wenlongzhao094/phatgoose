@@ -51,8 +51,7 @@ colm/datasets/flanv2_t5xl.gin \
 colm/models/t5base/t5.gin \
 colm/models/t5base/moe_lora_rank16_a2_teacher.gin \
 colm/models/moe_lora_rank16.gin \
-colm/experiments/train_single_task_loralinear_kd.gin \
+colm/experiments/train_single_task_loralinear_metaseqkd.gin \
 colm/experiments/wandb.gin \
---gin_bindings \
-P/TRAIN/TrainerKD.datasets=\"D/${DATASET}/TRAIN\" P/EVALUATE/Evaluator.datasets=\"D/${DATASET}/EVAL\" \
-${EXTRA_BINDINGS}
+--gin_bindings P/TRAIN/Trainer.datasets=\"D/${DATASET}/TRAIN\" \
+P/EVALUATE/Evaluator.datasets=\"D/${DATASET}/EVAL\" ${EXTRA_BINDINGS}

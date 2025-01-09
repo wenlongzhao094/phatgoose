@@ -3,3 +3,4 @@ from src.procedures.moma_wrapper import MoMaWrapper
 from src.procedures.retriever import Retriever
 from src.procedures.trainer import Trainer
 from src.procedures.trainer_kd import TrainerKD
+from src.procedures.trainer_metaseqkd import TrainerMetaSeqKD

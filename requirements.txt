@@ -18,3 +18,4 @@ rouge-score
 sentence-transformers
 bert_score
 num2words
+learn2learn

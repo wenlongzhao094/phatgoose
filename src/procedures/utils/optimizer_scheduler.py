@@ -103,6 +103,85 @@ def get_optimizer(
 
     return optimizer
 
+@gin.configurable(
+    allowlist=[
+        "optimizer_class",
+        "teacher_learning_rate",
+        "learning_rate",
+        "weight_decay",
+        "scale_parameter",
+        "relative_step",
+        "param_group_fn",
+    ]
+)
+def get_metaseqkd_optimizers(
+    teacher_model,
+    model,
+    optimizer_class,
+    teacher_learning_rate,
+    learning_rate,
+    weight_decay=0.0,
+    scale_parameter=False,
+    relative_step=False,
+    param_group_fn=lambda x: "all_trainable",
+):
+    """
+    Args:
+        model: a model object
+        optimizer_class: optimizer class, one of "adam", "sgd", "adamw", "adafactor"
+        learning_rate: learning rate
+        weight_decay: weight decay for sgd, adamw and adafactor optimizer
+        scale_parameter: scale parameter in adafactor optimizer
+        relative_step: relative step in adafactor optimizer
+        param_group_fn: function to group parameters, default to group all trainable parameters into one group
+    """
+    teacher_param_groups = defaultdict(lambda: {"params": []})
+    for param_name, param in teacher_model.named_trainable_parameters().items():
+        param_group_name = param_group_fn(param_name)
+        teacher_param_groups[param_group_name]["params"].append(param)
+    teacher_param_groups = teacher_param_groups.values()
+
+    param_groups = defaultdict(lambda: {"params": []})
+    for param_name, param in model.named_trainable_parameters().items():
+        param_group_name = param_group_fn(param_name)
+        param_groups[param_group_name]["params"].append(param)
+    param_groups = param_groups.values()
+
+    if optimizer_class == "adam":
+        teacher_optimizer = optim.Adam(teacher_param_groups, lr=teacher_learning_rate)
+        optimizer = optim.Adam(param_groups, lr=learning_rate)
+    elif optimizer_class == "sgd":
+        teacher_optimizer = optim.SGD(teacher_param_groups, lr=teacher_learning_rate, weight_decay=weight_decay)
+        optimizer = optim.SGD(param_groups, lr=learning_rate, weight_decay=weight_decay)
+    elif optimizer_class == "adamw":
+        teacher_optimizer = optim.AdamW(
+            teacher_param_groups, lr=teacher_learning_rate, weight_decay=weight_decay, eps=1e-8
+        )
+        optimizer = optim.AdamW(
+            param_groups, lr=learning_rate, weight_decay=weight_decay, eps=1e-8
+        )
+    elif optimizer_class == "adafactor":
+        teacher_optimizer = Adafactor(
+            teacher_param_groups,
+            lr=teacher_learning_rate,
+            weight_decay=weight_decay,
+            scale_parameter=scale_parameter,
+            relative_step=relative_step,
+            warmup_init=False,
+        )
+        optimizer = Adafactor(
+            param_groups,
+            lr=learning_rate,
+            weight_decay=weight_decay,
+            scale_parameter=scale_parameter,
+            relative_step=relative_step,
+            warmup_init=False,
+        )
+    else:
+        raise ValueError("Invalid optimizer class %s" % optimizer_class)
+
+    return teacher_optimizer, optimizer
+
 
 @gin.configurable(
     allowlist=[
@@ -150,6 +229,65 @@ def get_scheduler(
         return AdafactorSchedule(optimizer, initial_lr=optimizer.defaults["lr"])
     else:
         raise ValueError("Invalid scheduler class %s" % scheduler_class)
+
+@gin.configurable(
+    allowlist=[
+        "scheduler_class",
+        "gamma",
+        "warmup_ratio",
+        "num_warmup_steps",
+    ]
+)
+def get_metaseqkd_schedulers(
+    teacher_optimizer,
+    optimizer,
+    num_steps,
+    scheduler_class,
+    gamma=None,
+    warmup_ratio=None,
+    num_warmup_steps=None,
+):
+    """
+    Args:
+        optimizer: an optimizer
+        scheduler_class: scheduler class, one of "constant", "polynomial_decay_with_warmup", "exponential_decay", "linear_decay_with_warmup", "cosine_annealing", "adafactor"
+        num_steps: total number of steps
+        warmup_ratio: ratio of warmup steps
+        num_warmup_steps: number of warmup steps
+    """
+    if num_warmup_steps is None and warmup_ratio is not None:
+        num_warmup_steps = int(num_steps * warmup_ratio)
+    if num_warmup_steps is None:
+        num_warmup_steps = 0
+    if scheduler_class == "constant_with_warmup":
+        teacher_scheduler = get_constant_schedule_with_warmup(teacher_optimizer, num_warmup_steps)
+        scheduler = get_constant_schedule_with_warmup(optimizer, num_warmup_steps)
+    elif scheduler_class == "defrost":
+        teacher_scheduler = get_defrost_schedule(teacher_optimizer, num_warmup_steps)
+        scheduler = get_defrost_schedule(optimizer, num_warmup_steps)
+    elif scheduler_class == "polynomial_decay_with_warmup":
+        teacher_scheduler = get_polynomial_decay_schedule_with_warmup(
+            teacher_optimizer, num_warmup_steps, num_steps
+        )
+        scheduler = get_polynomial_decay_schedule_with_warmup(
+            optimizer, num_warmup_steps, num_steps
+        )
+    elif scheduler_class == "exponential_decay":
+        teacher_scheduler = torch.optim.lr_scheduler.ExponentialLR(teacher_optimizer, gamma=gamma)
+        scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=gamma)
+    elif scheduler_class == "linear_decay_with_warmup":
+        teacher_scheduler = get_linear_schedule_with_warmup(teacher_optimizer, num_warmup_steps, num_steps)
+        scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps, num_steps)
+    elif scheduler_class == "cosine_annealing":
+        teacher_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(teacher_optimizer, T_max=num_steps)
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=num_steps)
+    elif scheduler_class == "adafactor":
+        teacher_scheduler = AdafactorSchedule(teacher_optimizer, initial_lr=teacher_optimizer.defaults["lr"])
+        scheduler = AdafactorSchedule(optimizer, initial_lr=optimizer.defaults["lr"])
+    else:
+        raise ValueError("Invalid scheduler class %s" % scheduler_class)
+
+    return teacher_scheduler, scheduler
 
 
 def get_constant_schedule_with_warmup(optimizer, num_warmup_steps, last_epoch=-1):
