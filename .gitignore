@@ -1,3 +1,5 @@
+scratch/
+
 # offline datasets dir
 src/datasets_offline/*
 !src/datasets_offline/.gitkeep

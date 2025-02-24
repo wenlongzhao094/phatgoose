@@ -54,8 +54,8 @@ def main(
     # Optionally resume from the checkpoint
     if recover_from_checkpoint:
         raise NotImplementedError("Checkpointing is not implemented yet")
-        with open(recover_from_checkpoint, "r") as checkpoing_file:
-            checkpoint_info = json.load(checkpoing_file)
+        with open(recover_from_checkpoint, "r") as checkpointing_file:
+            checkpoint_info = json.load(checkpointing_file)
         procedure_status = checkpoint_info["procedure_status"]
         object_checkpoint_path_mapping = checkpoint_info[
             "object_checkpoint_path_mapping"

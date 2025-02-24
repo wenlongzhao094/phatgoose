@@ -12,7 +12,7 @@ from src.models.manipulations.utils import search_by_prefix
 def make_moe(
     model,
     expert_class: str,
-    expert_modules: Union[str, List[str]],
+    expert_modules: Union[str, List[str]],  # the modules to add experts
     router_modules: Union[str, List[str]],
     expert_addon_name: str = "expert",
     router_addon_name: str = "router",
@@ -41,16 +41,19 @@ def make_moe(
         if re.fullmatch(router_pattern, module_name):
             if model.has_addon(router_addon_name, module_name):
                 continue
-            expose_hiddens_addons = model.get_addons(expose_hiddens_addon_name)
+            expose_hiddens_addons = model.get_addons(expose_hiddens_addon_name)  # of the entire model
             matched_expose_hidden_module_name = search_by_prefix(
                 query=module_name,
                 target_list=expose_hiddens_addons.keys(),
-            )
+            )  # of this module
             matched_expose_hidden_addon = expose_hiddens_addons[
                 matched_expose_hidden_module_name
-            ]
+            ]  # of this module
             router_addon = Router(
                 global_hidden_dict=model.global_hidden_dict,
+                    # TODO: if this stores references to the hidden states, we are good;
+                    #  if this stores just the hidden state values, then gradients will break in training
+                    #  and we need to fix this
                 host_module=module,
                 read_hidden_key=matched_expose_hidden_addon.write_hidden_key,
                 write_routing_weights_key=(
@@ -73,28 +76,28 @@ def make_moe(
         if re.fullmatch(expert_pattern, module_name):
             if model.has_addon(expert_addon_name, module_name):
                 continue
-            router_addons = model.get_addons(router_addon_name)
+            router_addons = model.get_addons(router_addon_name)  # of the entire model
             matched_router_module_name = search_by_prefix(
                 query=module_name,
                 target_list=router_addons.keys(),
-            )
-            matched_router_addon = router_addons[matched_router_module_name]
-            # Note: you can use "host_module.in_features" and "host_module.out_features"
+            )  # of this module
+            matched_router_addon = router_addons[matched_router_module_name]  # of this module
             expert_addon = expert_class(
                 global_hidden_dict=model.global_hidden_dict,
-                host_module=module,
+                host_module=module,  # Note: can use "host_module.in_features" and "host_module.out_features"
                 read_routing_weights_key=matched_router_addon.write_routing_weights_key,
                 moe_link=matched_router_addon.moe_link,
-            )
+            )  # TODO: why doesn't it input the hidden states
             # Is this a good way?
             if "adapter" in expert_addon_name:
                 model.insert_addon(expert_addon_name, module_name, expert_addon, "last")
-            elif "lora" in expert_addon_name:
-                model.insert_addon(
-                    expert_addon_name, module_name, expert_addon, "inner"
-                )
+            elif "lora" in expert_addon_name:  # see models/t5xl/moe_lora_rank16_a2.gin: this is expert_lora
+                model.insert_addon(expert_addon_name, module_name, expert_addon, "inner")
             else:
                 raise ValueError(f"Unknown expert addon name {expert_addon_name}")
+
+            # pre-forward: expose_hidden -> router -> ffnexpert
+            # post-forward: ffnexpert -> expose_hidden -> router
 
 
 @gin.configurable
@@ -117,14 +120,12 @@ def extend_moe(
         moe_link = router_addon.moe_link
         moe_link.extend(num_new_experts, identifier_stem)
         moe_link.router.extend(num_new_experts, weight_init)
-        for moe_layer in moe_link.moe_layers:
+        for moe_layer in moe_link.moe_layers:  # FFNExperts
             moe_layer.extend(num_new_experts, weight_init)
 
 
 @gin.configurable
-def make_router_blockwise(
-    model,
-):
+def make_router_blockwise(model):  # TODO: never called?
     """Tie the parameters of the routers in the same block."""
     self_attn_modules = {}
     for name, module in model.torch_model.named_modules():

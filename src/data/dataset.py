@@ -123,7 +123,7 @@ class Dataset(torch.utils.data.Dataset):
                 )
             else:
                 self._examples = load_huggingface_dataset(
-                    *self.dataset_path[1:], split=self.split
+                    *self.dataset_path[1:], split=self.split, trust_remote_code=True
                 )
             # TODO: it takes a lot of time for FLAN datasets, we can do this inside P3 datasets if needed
             # self._examples = [example for example in self._examples]

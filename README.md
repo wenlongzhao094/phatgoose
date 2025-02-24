@@ -3,13 +3,14 @@
 ## Introduction
 PHATGOOSE, which stands for Post-Hoc Adaptive Gating Over an Ocean of Specialized Experts, enables zero-shot generalization from specialized experts (eg PEFT modules) trained on diverse datasets by adaptively routing among them. It requires an additional, inexpensive training step of a gate in front of a frozen PEFT module for its corresponding task.
 
+
 ## Setup
 Follow these steps to set up the PHATGOOSE environment:
 
 1. **Create a Conda Environment**:
    ```shell
-   conda create -n phatgoose python==3.9
-   conda activate phatgoose
+   conda create -n pg python==3.9
+   conda activate pg
    ```
 
 2. **Install Required Packages**:
@@ -18,10 +19,30 @@ Follow these steps to set up the PHATGOOSE environment:
    pip install -r requirements.txt
    pip install -r requirements-dev.txt
    ```
-Run `source exp_launch/setup_environment_variable.sh` each time you initiate an environment to ensure that the environment paths are correctly set.
+
+## Launch Experiments
+```
+source exp_launch/setup_environment_variable.sh
+mkdir -p exp_out/<exp_id>
+# Either
+sbatch exp_launch/<exp_id>/<train or eval>.sbatch
+# or
+bash exp_launch/<exp_id>/<train or eval>.sh
+```
+
+## Datasets and Checkpoints
+**Datasets** including T0 Held-in and BIG-bench are available through Hugging Face. 
+ - Need to pass `trust_remote_code=True` to `load_huggingface_dataset` in `src/data/dataset.py` to load the dataset from Hugging Face.
+ - Need to manually get `src/datasets_offline/story_cloze/2016` from `https://huggingface.co/datasets/r-three/Phatgoose_storycloze_offline`.
+ - For the FLAN dataset, we will provide a processed version soon, sourced from the [FLAN dataset on Hugging Face](https://huggingface.co/datasets/Open-Orca/FLAN).
+
+**Checkpoints** for PHATGOOSE and baselines such as Average Activation, Merged Experts, and Retrieval, accessible at our [Hugging Face repository](https://huggingface.co/r-three).
+
+For individual experts, we recommend splitting any checkpoint other than Merged Experts. Each checkpoint contains keys for an expert ending with `layer1__i`, `layer2__i`, indicating the LoRA parameters of the expert `i` trained on dataset `i`. The sequence of datasets is detailed as the `all_dataset_dict` in [`scripts/concatenate.py`](scripts/concatenate.py) file.
+
 
 ## Training Procedure
-Below are the steps for required for PHATGOOSE and other baselines:
+Below are the steps required for PHATGOOSE and other baselines:
 
 ### Train a Single LoRA on a Dataset
 ```shell
@@ -54,9 +75,23 @@ python scripts/manipulations.py --gin_bindings 'use_input_gate_as_router.path="d
 python scripts/concatenate.py --gin_bindings 'run_concatenate.print_commands=False' 'run_concatenate.out_path="FullCompleteA2inpgatetrainnogumbel_t5xl_lora_concatenated"' 'func_caller.func=@run_concatenate' 'run_concatenate.suffix="t5xl_lora_inpgatetrainnogumbel"' 'run_concatenate.datasets="Full"'
 ```
 
-## Baseline Methods
 
-### Compute Average Hiddens for Average Activation Baseline
+## Baseline Methods
+### (1) Full-expert routing
+#### Route to a retrieved expert, retrieval by source data embeddings (1k training examples)
+```shell
+bash colm/experiments/bash_scripts/retriever.sh -make_expert_library True -dataset_setting Full
+bash colm/experiments/bash_scripts/retriever.sh -create_checkpoint True -dataset_setting All
+```
+
+#### Route to all experts uniformly, i.e., merge experts by averaging
+```
+```shell
+python scripts/manipulations.py --gin_bindings 'average_outer_product_lora_weights.path="FullCompleteA2_t5xl_lora_concatenated"' 'average_outer_product_lora_weights.out_path="FullParameteravg_t5xl_lora_outerproduct"' 'func_caller.func=@average_outer_product_lora_weights'
+```
+
+### (2) Layer-wise Routing
+#### Route by using average source activation as the routing vector
 ```shell
 python scripts/concatenate.py --gin_bindings 'run_concatenate.print_commands=True' 'run_concatenate.out_path="FullCompleteA2_t5xl_lora_concatenated"' 'func_caller.func=@run_concatenate' 'run_concatenate.suffix="t5xl_lora"' 'run_concatenate.compute_hiddens=True' 'run_concatenate.extra_bindings="M/MODEL/ENCODER/ExposeHidden.reduction_method=\"masked_mean\" M/MODEL/DECODER/ExposeHidden.reduction_method=\"mean\""' 'run_concatenate.datasets="Full"'
 
@@ -65,57 +100,40 @@ python scripts/concatenate.py --gin_bindings 'run_concatenate.print_commands=Tru
 python scripts/concatenate.py --gin_bindings 'run_concatenate.print_commands=False' 'run_concatenate.out_path="FullCompleteA2_t5xl_lora_concatenated"' 'func_caller.func=@run_concatenate' 'run_concatenate.suffix="t5xl_lora"' 'run_concatenate.compute_hiddens=False' 'run_concatenate.datasets="Full"'
 ```
 
-## Create Expert Library  and checkpoint for Retrieval
-```shell
-bash colm/experiments/bash_scripts/retriever.sh -make_expert_library True -dataset_setting Full
-bash colm/experiments/bash_scripts/retriever.sh -create_checkpoint True -dataset_setting All
-```
 
-## Create Merged Experts checkpoint
-```shell
-python scripts/manipulations.py --gin_bindings 'average_outer_product_lora_weights.path="FullCompleteA2_t5xl_lora_concatenated"' 'average_outer_product_lora_weights.out_path="FullParameteravg_t5xl_lora_outerproduct"' 'func_caller.func=@average_outer_product_lora_weights'
-```
-
-
-## Models and Datasets
-We provide checkpoints for PHATGOOSE, along with baselines such as Average Activation, Merged Experts, and Retrieval, accessible at our [Hugging Face repository](https://huggingface.co/r-three).
-
-For individual experts, we recommend splitting any checkpoint other than Merged Experts. Each checkpoint contains keys for an expert ending with `layer1__i`, `layer2__i`, indicating the LoRA parameters of the expert `i` trained on dataset `i`. The sequence of datasets is detailed as the `all_dataset_dict` in [`scripts/concatenate.py`](scripts/concatenate.py) file.
-
-Datasets including T0 Held-in and BIG-bench are available through Hugging Face. For the FLAN dataset, we will provide a processed version soon, sourced from the [FLAN dataset on Hugging Face](https://huggingface.co/datasets/Open-Orca/FLAN).
-
-## Evaluation
+## Domain Generalization Evaluation
 Here are the scripts for evaluating different methods:
-Place the trained checkpoints directory inside the `exp_out` directory by creating one if it does not exist. For example, do `git clone https://huggingface.co/r-three/FLAN_Phatgoose` to get FLAN checkpoint with 166 experts inside `phatgoose/exp_out/`.
+- Place the **trained checkpoints** directory inside the `exp_out` directory by creating one if it does not exist. For example, do `git clone https://huggingface.co/r-three/FLAN_Phatgoose` to get FLAN checkpoint with 166 experts inside `phatgoose/exp_out/`.
+- Change the **datasets and the checkpoint** accordingly to run for BIG-bench Lite and T0 Held-out datasets.
 
-### Multitask
+### (1) Full-expert routing
+#### Use a multitask model
 ```shell
 bash colm/experiments/bash_scripts/eval_multitask.sh -exp_name flan_t5_xl -extra_bindings 'P/EVALUATE/Evaluator.datasets=["D/BBBOOLEANEXPRESSIONS/EVAL", "D/BBCAUSALJUDGEMENT/EVAL", "D/BBDATEUNDERSTANDING/EVAL", "D/BBDISAMBIGUATIONQA/EVAL", "D/BBFORMALFALLACIES/EVAL", "D/BBGEOMETRICSHAPES/EVAL", "D/BBHYPERBATON/EVAL", "D/BBLOGICALDEDUCTION/EVAL", "D/BBMOVIERECOMMENDATION/EVAL", "D/BBMULTISTEPARITHMETICTWO/EVAL", "D/BBNAVIGATE/EVAL", "D/BBOBJECTCOUNTING/EVAL", "D/BBPENGUINSINATABLE/EVAL", "D/BBREASONINGABOUTCOLOREDOBJECTS/EVAL", "D/BBRUINNAMES/EVAL", "D/BBSALIENTTRANSLATIONERRORDETECTION/EVAL", "D/BBSNARKS/EVAL", "D/BBSPORTSUNDERSTANDING/EVAL", "D/BBTEMPORALSEQUENCES/EVAL", "D/BBTRACKINGSHUFFLEDOBJECTS/EVAL", "D/BBWEBOFLIES/EVAL", "D/BBWORDSORTING/EVAL"] P/EVALUATE/Evaluator.analysis_processors=[@WriteOutputText()] WriteOutputText.save_dir="exp_out/flan_t5_xl/output_text" M/MODEL/hf_torch_model.model_name_or_path="google/flan-t5-xl" M/MODEL/Model.init_moma_calls=[]'
 ```
 
-### Single Expert
+#### Use a single expert
 ```shell
 bash colm/experiments/bash_scripts/eval_multitask.sh -exp_name datasets_concatenated/P3Socialiqa_t5xl_lora -extra_bindings 'P/EVALUATE/Evaluator.datasets=["D/BBBOOLEANEXPRESSIONS/EVAL", "D/BBCAUSALJUDGEMENT/EVAL", "D/BBDATEUNDERSTANDING/EVAL", "D/BBDISAMBIGUATIONQA/EVAL", "D/BBFORMALFALLACIES/EVAL", "D/BBGEOMETRICSHAPES/EVAL", "D/BBHYPERBATON/EVAL", "D/BBLOGICALDEDUCTION/EVAL", "D/BBMOVIERECOMMENDATION/EVAL", "D/BBMULTISTEPARITHMETICTWO/EVAL", "D/BBNAVIGATE/EVAL", "D/BBOBJECTCOUNTING/EVAL", "D/BBPENGUINSINATABLE/EVAL", "D/BBREASONINGABOUTCOLOREDOBJECTS/EVAL", "D/BBRUINNAMES/EVAL", "D/BBSALIENTTRANSLATIONERRORDETECTION/EVAL", "D/BBSNARKS/EVAL", "D/BBSPORTSUNDERSTANDING/EVAL", "D/BBTEMPORALSEQUENCES/EVAL", "D/BBTRACKINGSHUFFLEDOBJECTS/EVAL", "D/BBWEBOFLIES/EVAL", "D/BBWORDSORTING/EVAL"] M/MODEL/ENCODER/ExposeHidden.reduction_method="masked_mean" M/MODEL/DECODER/ExposeHidden.reduction_method="mean" P/EVALUATE/Evaluator.analysis_processors=[@WriteOutputText()] WriteOutputText.save_dir="exp_out/datasets_concatenated/P3Socialiqa_t5xl_lora/output_text"'
 ```
 
-###  Retrieval
+#### Route to a retrieved expert, retrieval by source data embeddings
 ```shell
 bash colm/experiments/bash_scripts/retriever.sh -dataset_setting Full -extra_bindings 'main.procedure_exec_order=["P/EVALUATE/BBH"] P/EVALUATE/Evaluator.analysis_processors=[@WriteOutputText()] WriteOutputText.save_dir="exp_out/FullCompleteansretrieval_t5xl_lora_concatenated/output_text"'
 ```
 
-### Merged Experts
+#### Route to all experts uniformly, i.e., merge experts by averaging
 ```shell
 bash colm/experiments/bash_scripts/eval_multitask.sh -exp_name FLAN_MergedExperts -extra_bindings 'P/EVALUATE/Evaluator.datasets=["D/BBBOOLEANEXPRESSIONS/EVAL", "D/BBCAUSALJUDGEMENT/EVAL", "D/BBDATEUNDERSTANDING/EVAL", "D/BBDISAMBIGUATIONQA/EVAL", "D/BBFORMALFALLACIES/EVAL", "D/BBGEOMETRICSHAPES/EVAL", "D/BBHYPERBATON/EVAL", "D/BBLOGICALDEDUCTION/EVAL", "D/BBMOVIERECOMMENDATION/EVAL", "D/BBMULTISTEPARITHMETICTWO/EVAL", "D/BBNAVIGATE/EVAL", "D/BBOBJECTCOUNTING/EVAL", "D/BBPENGUINSINATABLE/EVAL", "D/BBREASONINGABOUTCOLOREDOBJECTS/EVAL", "D/BBRUINNAMES/EVAL", "D/BBSALIENTTRANSLATIONERRORDETECTION/EVAL", "D/BBSNARKS/EVAL", "D/BBSPORTSUNDERSTANDING/EVAL", "D/BBTEMPORALSEQUENCES/EVAL", "D/BBTRACKINGSHUFFLEDOBJECTS/EVAL", "D/BBWEBOFLIES/EVAL", "D/BBWORDSORTING/EVAL"] M/MODEL/ENCODER/ExposeHidden.reduction_method="masked_mean" M/MODEL/DECODER/ExposeHidden.reduction_method="mean" P/EVALUATE/Evaluator.analysis_processors=[@WriteOutputText()] WriteOutputText.save_dir="exp_out/FLAN_MergedExperts/output_text"'
 ```
 
-### Average Activation
+### (2) Layer-wise Routing
+#### Route by the similarity between a test activation vs. average source activations
 ```shell
 bash colm/experiments/bash_scripts/eval_multitask.sh -exp_name FLAN_AverageActivation -extra_bindings 'P/EVALUATE/Evaluator.datasets=["D/BBBOOLEANEXPRESSIONS/EVAL", "D/BBCAUSALJUDGEMENT/EVAL", "D/BBDATEUNDERSTANDING/EVAL", "D/BBDISAMBIGUATIONQA/EVAL", "D/BBFORMALFALLACIES/EVAL", "D/BBGEOMETRICSHAPES/EVAL", "D/BBHYPERBATON/EVAL", "D/BBLOGICALDEDUCTION/EVAL", "D/BBMOVIERECOMMENDATION/EVAL", "D/BBMULTISTEPARITHMETICTWO/EVAL", "D/BBNAVIGATE/EVAL", "D/BBOBJECTCOUNTING/EVAL", "D/BBPENGUINSINATABLE/EVAL", "D/BBREASONINGABOUTCOLOREDOBJECTS/EVAL", "D/BBRUINNAMES/EVAL", "D/BBSALIENTTRANSLATIONERRORDETECTION/EVAL", "D/BBSNARKS/EVAL", "D/BBSPORTSUNDERSTANDING/EVAL", "D/BBTEMPORALSEQUENCES/EVAL", "D/BBTRACKINGSHUFFLEDOBJECTS/EVAL", "D/BBWEBOFLIES/EVAL", "D/BBWORDSORTING/EVAL"] M/MODEL/FFNExperts.topk_value=2 M/MODEL/FFNExperts.normalize_topk=True M/MODEL/ENCODER/ExposeHidden.reduction_method=None M/MODEL/DECODER/ExposeHidden.reduction_method=None P/EVALUATE/Evaluator.analysis_processors=[@WriteOutputText(), @RoutingDistribution()] WriteOutputText.save_dir="exp_out/FLAN_AverageActivation/output_text" RoutingDistribution.save_dir="exp_out/FLAN_AverageActivation/routing_distribution"'
 ```
 
-### PHATGOOSE
+#### PHATGOOSE: Route by the similarity between a test activation vs. gating vectors trained on the source tasks
 ```shell
 bash colm/experiments/bash_scripts/eval_multitask.sh -exp_name FLAN_Phatgoose -extra_bindings 'P/EVALUATE/Evaluator.datasets=["D/BBBOOLEANEXPRESSIONS/EVAL", "D/BBCAUSALJUDGEMENT/EVAL", "D/BBDATEUNDERSTANDING/EVAL", "D/BBDISAMBIGUATIONQA/EVAL", "D/BBFORMALFALLACIES/EVAL", "D/BBGEOMETRICSHAPES/EVAL", "D/BBHYPERBATON/EVAL", "D/BBLOGICALDEDUCTION/EVAL", "D/BBMOVIERECOMMENDATION/EVAL", "D/BBMULTISTEPARITHMETICTWO/EVAL", "D/BBNAVIGATE/EVAL", "D/BBOBJECTCOUNTING/EVAL", "D/BBPENGUINSINATABLE/EVAL", "D/BBREASONINGABOUTCOLOREDOBJECTS/EVAL", "D/BBRUINNAMES/EVAL", "D/BBSALIENTTRANSLATIONERRORDETECTION/EVAL", "D/BBSNARKS/EVAL", "D/BBSPORTSUNDERSTANDING/EVAL", "D/BBTEMPORALSEQUENCES/EVAL", "D/BBTRACKINGSHUFFLEDOBJECTS/EVAL", "D/BBWEBOFLIES/EVAL", "D/BBWORDSORTING/EVAL"] M/MODEL/FFNExperts.topk_value=2 M/MODEL/FFNExperts.normalize_topk=True M/MODEL/ENCODER/ExposeHidden.reduction_method=None M/MODEL/DECODER/ExposeHidden.reduction_method=None P/EVALUATE/Evaluator.analysis_processors=[@WriteOutputText(), @RoutingDistribution()] WriteOutputText.save_dir="exp_out/FLAN_Phatgoose/output_text" RoutingDistribution.save_dir="exp_out/FLAN_Phatgoose/routing_distribution"'
 ```
-
-*Change the datasets and the checkpoint accordingly to run for BIG-bench Lite and T0 Held-out datasets.*

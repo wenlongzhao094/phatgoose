@@ -30,9 +30,6 @@ M/MODEL/load_weights.weight_path = "exp_out/P3_Phatgoose/best.pt"
 
 
 # --- MoE AddOn Architecture ---
-# separate_experts is removed from the original phatgoose implementation since it is not used
-# M/MODEL/ExtendableAddon.separate_experts = True
-
 # ExposeHidden
 M/MODEL/ExposeHidden.reduction_method = None
 M/MODEL/ENCODER/ExposeHidden.reduction_method = None
