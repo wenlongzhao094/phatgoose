@@ -1,5 +1,7 @@
 #!/bin/bash
 
+# Default values
+MODEL_TYPE=t5xl
 # Parse command-line arguments
 while [[ $# -gt 0 ]]; do
   key="$1"
@@ -40,18 +42,15 @@ if [ -z "$DATASET" ]; then
   exit 1
 fi
 
-echo -e "\nTrain ${DATASET}\n"
-
-echo -e "Using LoRA adapter\n"
+echo -e "\nEval ${DATASET}\n"
 
 # Use the variables directly in the command
 EXP_NAME=${EXP_NAME} python src/launch_single_process.py \
---gin_files colm/datasets/p3_t5xl.gin \
-colm/datasets/flanv2_t5xl.gin \
+--gin_files colm/datasets/p3_${MODEL_TYPE}.gin \
+colm/datasets/flanv2_${MODEL_TYPE}.gin \
 colm/models/t5base/t5.gin \
-colm/models/t5base/moe_lora_rank16_a2_teacher.gin \
 colm/models/moe_lora_rank16.gin \
-colm/experiments/train_single_task_loralinear_metaseqkd.gin \
-colm/experiments/wandb.gin \
---gin_bindings P/TRAIN/TrainerMetaSeqKD.datasets=\"D/${DATASET}/TRAIN\" \
-P/EVALUATE/Evaluator.datasets=\"D/${DATASET}/EVAL\" ${EXTRA_BINDINGS}
+colm/experiments/eval_metaseqkd.gin \
+--gin_bindings P/EVALUATE/EvaluatorMetaSeqKD.datasets=\"D/${DATASET}/EVAL\" \
+P/EVALUATE/EvaluatorMetaSeqKD.adapt_datasets=\"D/${DATASET}/TRAIN\" \
+P/EVALUATE/EvaluatorMetaSeqKD.analysis_processors=[] 'M/MODEL/Model.init_moma_calls = [@M/MODEL/modify_with_lora, @M/MODEL/load_weights] M/TEACHER_MODEL/FFNExperts.topk_value=2 M/TEACHER_MODEL/FFNExperts.normalize_topk=True' ${EXTRA_BINDINGS}

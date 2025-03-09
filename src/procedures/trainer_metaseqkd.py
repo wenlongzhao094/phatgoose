@@ -248,10 +248,6 @@ class TrainerMetaSeqKD(Procedure):
                     )
 
 
-
-
-
-
                 if self.loss_scaler is not None:
                     self.loss_scaler.unscale_(self.optimizer)
 

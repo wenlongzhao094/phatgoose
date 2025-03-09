@@ -19,18 +19,7 @@ P/TRAIN/TrainerMetaSeqKD:
         @MOMA/DONE/save_weights,
         @MOMA/DONE/load_weights,
     ]
-    datasets = "D/P3RTE/TRAIN"
-    batcher = @P/TRAIN/SingleTaskBatcher()
-    num_steps = 1000
-    validation_step_interval = 100
-    gradient_accumulation_factor = 32
     ilr = 1e-6
-
-
-P/TRAIN/SingleTaskBatcher:
-    shuffle = True
-    drop_last = True
-    num_workers = 8
 
 
 MOMA/save_weights.should_save_to_gcp = False
@@ -64,7 +53,6 @@ P/EVALUATE/Evaluator:
     better_model_moma_calls = [
         @MOMA/BEST/save_weights,
     ]
-    datasets = "D/P3RTE/EVAL"
 
 P/EVALUATE/HELDOUT/Evaluator:
     datasets = ["D/P3RTE/EVAL", "D/P3HSWAG/EVAL", "D/P3COPA/EVAL", "D/P3WIC/EVAL", "D/P3WINOGRANDE/EVAL", "D/P3CB/EVAL", "D/P3STORYCLOZE/EVAL", "D/P3ANLI/R1/EVAL", "D/P3ANLI/R2/EVAL", "D/P3ANLI/R3/EVAL", "D/P3WSCFIXED/EVAL"]
